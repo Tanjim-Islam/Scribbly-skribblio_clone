@@ -34,14 +34,14 @@ export function Lobby({ socket, room, selfId, onLeave, onError }: LobbyProps) {
     });
   };
 
-  const copyLink = async () => {
+  const copyCode = async () => {
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}/room/${room.code}`);
+      await navigator.clipboard.writeText(room.code);
       playSound('tap');
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1_500);
     } catch {
-      onError('Could not copy the link.');
+      onError('Could not copy the code.');
     }
   };
 
@@ -54,7 +54,7 @@ export function Lobby({ socket, room, selfId, onLeave, onError }: LobbyProps) {
         <div className="room-code-block">
           <span>Room</span>
           <strong>{room.code}</strong>
-          <button className="quiet-button" type="button" onClick={copyLink}>{copied ? 'Copied' : 'Copy Link'}</button>
+          <button className="quiet-button" type="button" onClick={copyCode}>{copied ? 'Copied' : 'Copy Code'}</button>
         </div>
         <div className="room-actions">
           <SoundToggle />

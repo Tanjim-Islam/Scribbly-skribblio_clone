@@ -107,6 +107,18 @@ describe('home screen', () => {
 });
 
 describe('lobby controls', () => {
+  it('copies only the room code', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    render(<Lobby socket={fakeSocket} room={lobbyRoom()} selfId="alice" onLeave={vi.fn()} onError={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Copy Code' }));
+    expect(writeText).toHaveBeenCalledWith('H7K3QF');
+    expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument();
+  });
+
   it('shows editable settings and start to the host', () => {
     render(<Lobby socket={fakeSocket} room={lobbyRoom()} selfId="alice" onLeave={vi.fn()} onError={vi.fn()} />);
     expect(screen.getByLabelText('Rounds')).toBeInTheDocument();
