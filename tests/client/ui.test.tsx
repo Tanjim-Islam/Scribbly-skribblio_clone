@@ -18,6 +18,7 @@ vi.mock('../../src/client/socket.js', () => ({
 }));
 
 import App from '../../src/client/App.js';
+import { setSoundEnabled } from '../../src/client/audio/sound-engine.js';
 import { ChatPanel } from '../../src/client/components/ChatPanel.js';
 import { FinalResults } from '../../src/client/components/FinalResults.js';
 import { GameRoom } from '../../src/client/components/GameRoom.js';
@@ -89,6 +90,19 @@ describe('home screen', () => {
     render(<App />);
     expect(screen.getByLabelText('Nickname')).toHaveValue('Alice');
     expect(Object.keys(localStorage)).toEqual(['scribbly:nickname']);
+  });
+
+  it('offers an accessible session-only sound toggle', async () => {
+    setSoundEnabled(true);
+    render(<HomeScreen initialNickname="" onCreate={vi.fn()} onJoin={vi.fn()} />);
+    const muteButton = screen.getByRole('button', { name: 'Mute sounds' });
+    expect(muteButton).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(muteButton);
+    const enableButton = screen.getByRole('button', { name: 'Turn sounds on' });
+    expect(enableButton).toHaveAttribute('aria-pressed', 'false');
+    await userEvent.click(enableButton);
+    expect(screen.getByRole('button', { name: 'Mute sounds' })).toHaveAttribute('aria-pressed', 'true');
+    expect(Object.keys(localStorage)).not.toContain('scribbly:sound');
   });
 });
 

@@ -5,7 +5,7 @@ Scribbly is a small real-time multiplayer drawing and guessing game. Create a ro
 ## Stack
 
 - React, TypeScript, Vite, and Tailwind CSS 4
-- Native HTML Canvas with Pointer Events
+- Native HTML Canvas, Pointer Events, and Web Audio sound cues
 - Node.js, Express, and Socket.IO
 - Vitest, React Testing Library, and real Socket.IO test clients
 

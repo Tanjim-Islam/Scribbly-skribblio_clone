@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import type { ActionResult, GameSettings, PublicRoomState } from '../../shared/types.js';
+import { playSound } from '../audio/sound-engine.js';
 import type { ScribblySocket } from '../socket.js';
 import { PlayerList } from './PlayerList.js';
+import { SoundToggle } from './SoundToggle.js';
 
 type LobbyProps = {
   socket: ScribblySocket;
@@ -20,6 +22,7 @@ export function Lobby({ socket, room, selfId, onLeave, onError }: LobbyProps) {
     const settings = { ...room.settings, ...patch } as GameSettings;
     socket.emit('room:updateSettings', settings, (result) => {
       if (!result.ok) onError(result.error);
+      else playSound('tap');
     });
   };
 
@@ -34,6 +37,7 @@ export function Lobby({ socket, room, selfId, onLeave, onError }: LobbyProps) {
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(`${window.location.origin}/room/${room.code}`);
+      playSound('tap');
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1_500);
     } catch {
@@ -52,7 +56,10 @@ export function Lobby({ socket, room, selfId, onLeave, onError }: LobbyProps) {
           <strong>{room.code}</strong>
           <button className="quiet-button" type="button" onClick={copyLink}>{copied ? 'Copied' : 'Copy Link'}</button>
         </div>
-        <button className="quiet-button leave-button" type="button" onClick={onLeave}>Leave</button>
+        <div className="room-actions">
+          <SoundToggle />
+          <button className="quiet-button leave-button" type="button" onClick={onLeave}>Leave</button>
+        </div>
       </header>
 
       <div className="lobby-content">

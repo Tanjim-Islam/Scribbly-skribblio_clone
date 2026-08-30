@@ -1,5 +1,7 @@
 import { useState, type FormEvent, type KeyboardEvent } from 'react';
 import { MAX_NICKNAME_LENGTH } from '../../shared/types.js';
+import { playSound } from '../audio/sound-engine.js';
+import { SoundToggle } from './SoundToggle.js';
 
 type HomeScreenProps = {
   initialNickname: string;
@@ -24,14 +26,19 @@ export function HomeScreen({
   const [roomCode, setRoomCode] = useState(initialRoomCode);
   const [localError, setLocalError] = useState<string | null>(null);
 
+  const showLocalError = (message: string) => {
+    playSound('failure');
+    setLocalError(message);
+  };
+
   const validNickname = (): string | null => {
     const value = nickname.trim();
     if (!value) {
-      setLocalError('Enter a nickname.');
+      showLocalError('Enter a nickname.');
       return null;
     }
     if (value.length > MAX_NICKNAME_LENGTH) {
-      setLocalError(`Nickname must be ${MAX_NICKNAME_LENGTH} characters or fewer.`);
+      showLocalError(`Nickname must be ${MAX_NICKNAME_LENGTH} characters or fewer.`);
       return null;
     }
     setLocalError(null);
@@ -47,7 +54,7 @@ export function HomeScreen({
     const value = validNickname();
     if (!value) return;
     if (!roomCode.trim()) {
-      setLocalError('Enter a room code.');
+      showLocalError('Enter a room code.');
       return;
     }
     onJoin(value, roomCode.trim().toUpperCase());
@@ -73,6 +80,7 @@ export function HomeScreen({
   return (
     <main className="home-shell">
       <section className="home-panel" aria-labelledby="scribbly-title">
+        <SoundToggle className="home-sound-toggle" />
         <div className="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 64 64">
             <path d="M13 43c10-26 22 13 39-25M15 22c9 10 17-12 35 19" />

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ActionResult,
   BrushWidth,
@@ -7,11 +7,13 @@ import type {
   PublicRoomState,
   TurnSummary,
 } from '../../shared/types.js';
+import { playSound } from '../audio/sound-engine.js';
 import type { ScribblySocket } from '../socket.js';
 import { ChatPanel } from './ChatPanel.js';
 import { DrawingCanvas } from './DrawingCanvas.js';
 import { DrawingToolbar } from './DrawingToolbar.js';
 import { PlayerList } from './PlayerList.js';
+import { SoundToggle } from './SoundToggle.js';
 
 type GameRoomProps = {
   socket: ScribblySocket;
@@ -50,6 +52,13 @@ export function GameRoom({ socket, room, selfId, choices, drawerWord, messages, 
   const drawing = game?.phase === 'drawing';
   const canChat = Boolean(drawing && !isDrawer && !me?.hasGuessed);
   const resetKey = `${game?.round ?? 0}:${game?.currentDrawerId ?? 'none'}`;
+  const lowTimeCueRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!drawing || seconds !== 10 || lowTimeCueRef.current === resetKey) return;
+    lowTimeCueRef.current = resetKey;
+    playSound('low-time');
+  }, [drawing, resetKey, seconds]);
 
   const statusText = useMemo(() => {
     if (!game) return '';
@@ -81,7 +90,10 @@ export function GameRoom({ socket, room, selfId, choices, drawerWord, messages, 
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8" /><path d="M12 13V9m-3-6h6" /></svg>
           <strong>{formatTime(seconds)}</strong>
         </div>
-        <button className="quiet-button game-leave" type="button" onClick={onLeave}>Leave</button>
+        <div className="game-actions">
+          <SoundToggle />
+          <button className="quiet-button game-leave" type="button" onClick={onLeave}>Leave</button>
+        </div>
       </header>
 
       <div className="game-grid">

@@ -1,5 +1,6 @@
 import type { ActionResult, PublicRoomState } from '../../shared/types.js';
 import type { ScribblySocket } from '../socket.js';
+import { SoundToggle } from './SoundToggle.js';
 
 type FinalResultsProps = {
   socket: ScribblySocket;
@@ -17,6 +18,7 @@ export function FinalResults({ socket, room, selfId, onError }: FinalResultsProp
   return (
     <main className="results-shell">
       <section className="results-card">
+        <SoundToggle className="results-sound-toggle" />
         <div className="finish-scribble" aria-hidden="true">✦</div>
         <p className="eyebrow">Game complete</p>
         <h1>Final standings</h1>
