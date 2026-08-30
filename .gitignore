@@ -4,4 +4,4 @@ dist-server/
 coverage/
 *.log
 .DS_Store
-
+AGENTS.md
