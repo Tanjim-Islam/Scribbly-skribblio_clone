@@ -18,6 +18,7 @@ export function createScribblyServer(options: GameEngineOptions = {}): ScribblyS
   const app = express();
   const httpServer = createServer(app);
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
+    cors: { origin: '*' },
     connectionStateRecovery: {
       maxDisconnectionDuration: options.timings?.disconnectGraceMs ?? 5_000,
       skipMiddlewares: true,
