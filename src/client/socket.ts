@@ -5,9 +5,11 @@ export type ScribblySocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 let socket: ScribblySocket | null = null;
 
+const socketUrl = import.meta.env.VITE_SOCKET_URL as string | undefined;
+
 export function getSocket(): ScribblySocket {
   if (!socket) {
-    socket = io({ autoConnect: true });
+    socket = io(socketUrl || undefined, { autoConnect: true });
   }
   return socket;
 }
