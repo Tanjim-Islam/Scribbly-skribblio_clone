@@ -48,7 +48,7 @@ export function createScribblyServer(options: GameEngineOptions = {}): ScribblyS
     httpServer,
     io,
     engine,
-    start: (port = 3001, host = '127.0.0.1') =>
+    start: (port = 3001, host = '0.0.0.0') =>
       new Promise<number>((resolve, reject) => {
         httpServer.once('error', reject);
         httpServer.listen(port, host, () => {
