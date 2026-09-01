@@ -13,6 +13,7 @@ export type SoundCue =
   | 'turn-ended'
   | 'game-ended'
   | 'low-time'
+  | 'hint'
   | 'undo'
   | 'clear'
   | 'leave'
@@ -51,6 +52,7 @@ export const SOUND_CUE_DEFINITIONS: Readonly<Record<SoundCue, readonly SoundTone
   'turn-ended': [tone(523.25, 260, 140, 0.016), tone(392, 340, 210, 0.018)],
   'game-ended': [tone(261.63, 0, 140, 0.021), tone(329.63, 90, 160, 0.022), tone(392, 180, 180, 0.023), tone(523.25, 285, 280, 0.025)],
   'low-time': [tone(440, 0, 150, 0.012, 'triangle')],
+  hint: [tone(659.25, 0, 110, 0.014), tone(783.99, 65, 180, 0.017)],
   undo: [tone(440, 0, 90, 0.012, 'triangle'), tone(349.23, 55, 130, 0.014, 'triangle')],
   clear: [tone(349.23, 0, 90, 0.012, 'triangle'), tone(261.63, 55, 160, 0.014, 'triangle')],
   leave: [tone(392, 0, 100, 0.014), tone(293.66, 70, 180, 0.016)],

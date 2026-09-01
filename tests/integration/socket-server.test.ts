@@ -339,10 +339,122 @@ describe('authoritative game protocol', () => {
     const code = await createRoom(alice);
     await joinRoom(bob, 'Bob', code);
     await emitAck(alice, 'game:start');
+    const leaveMessagePromise = waitForEvent(alice, 'chat:message', (message) => message.type === 'system');
     bob.disconnect();
     await waitUntil(() => aliceState.current?.room.status === 'lobby');
     expect(aliceState.current?.room.players).toHaveLength(1);
     expect(aliceState.current?.room.players[0].score).toBe(0);
     expect(aliceState.current?.room.game).toBeNull();
+    expect((await leaveMessagePromise)[0].text).toBe('Bob left the room. Not enough players to keep playing.');
+  });
+});
+
+describe('canvas fill tool', () => {
+  it('applies fills only from the drawer and syncs them to everyone', async () => {
+    const { url } = await setup({
+      words: ['cat', 'dog', 'rocket'],
+      timings: { wordChoiceMs: 200, intermissionMs: 100, drawDurationMs: 1_000 },
+    });
+    const alice = await addClient(url);
+    const bob = await addClient(url);
+    const aliceState = trackState(alice);
+    const code = await createRoom(alice);
+    await joinRoom(bob, 'Bob', code);
+    const choicesPromise = waitForEvent(alice, 'word:choices');
+    await emitAck(alice, 'game:start');
+    const [{ choices }] = await choicesPromise;
+    await emitAck(alice, 'word:choose', { choice: choices[0] });
+    await waitUntil(() => aliceState.current?.room.game?.phase === 'drawing');
+
+    const fillPromise = waitForEvent(bob, 'canvas:fill');
+    alice.emit('canvas:fill', { point: { x: 0.5, y: 0.5 }, color: '#3976cf' });
+    expect((await fillPromise)[0]).toEqual({ point: { x: 0.5, y: 0.5 }, color: '#3976cf' });
+
+    let fillEvents = 0;
+    bob.on('canvas:fill', () => { fillEvents += 1; });
+    bob.emit('canvas:fill', { point: { x: 0.1, y: 0.1 }, color: '#3976cf' });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(fillEvents).toBe(0);
+
+    const errorPromise = waitForEvent(alice, 'action:error');
+    alice.emit('canvas:fill', { point: { x: 1.5, y: 0.5 }, color: 'red' });
+    expect((await errorPromise)[0].message).toBe('Invalid drawing command.');
+
+    const undoPromise = waitForEvent(bob, 'canvas:undo');
+    alice.emit('canvas:undo');
+    expect((await undoPromise)[0]).toEqual({ strokeId: null });
+
+    const beginPromise = waitForEvent(bob, 'draw:begin');
+    alice.emit('draw:begin', {
+      strokeId: 'stroke-2', tool: 'brush', color: '#20211f', width: 0.008, points: [{ x: 0.2, y: 0.3 }],
+    });
+    await beginPromise;
+    const undoStrokePromise = waitForEvent(bob, 'canvas:undo');
+    alice.emit('canvas:undo');
+    expect((await undoStrokePromise)[0]).toEqual({ strokeId: 'stroke-2' });
+  });
+});
+
+describe('letter hints', () => {
+  it('reveals one letter at half time and two more at three quarters', async () => {
+    const { url } = await setup({
+      words: ['bicycle', 'dog', 'rocket'],
+      timings: { wordChoiceMs: 100, intermissionMs: 100, drawDurationMs: 400 },
+    });
+    const alice = await addClient(url);
+    const bob = await addClient(url);
+    const aliceState = trackState(alice);
+    const code = await createRoom(alice);
+    await joinRoom(bob, 'Bob', code);
+    const masks: string[] = [];
+    bob.on('room:state', (state) => {
+      const mask = state.room.game?.maskedWord;
+      if (mask && mask !== '_ _ _ _ _ _ _' && masks[masks.length - 1] !== mask) masks.push(mask);
+    });
+    const hintMessagePromise = waitForEvent(
+      bob,
+      'chat:message',
+      (message) => message.type === 'system' && message.text.startsWith('Hint:'),
+    );
+    const choicesPromise = waitForEvent(alice, 'word:choices');
+    await emitAck(alice, 'game:start');
+    await choicesPromise;
+    await emitAck(alice, 'word:choose', { choice: 'bicycle' });
+    await waitUntil(() => aliceState.current?.room.game?.phase === 'drawing');
+    expect((await hintMessagePromise)[0].text).toBe('Hint: the letter "c" is in the word.');
+    await waitUntil(() => masks.length >= 2);
+    expect(masks[0]).toBe('_ _ c _ c _ _');
+    expect(masks[1]).toBe('b i c _ c _ _');
+  });
+});
+
+describe('near guesses', () => {
+  it('announces guesses that are one letter away, once per turn', async () => {
+    const { url } = await setup({
+      words: ['bicycle', 'dog', 'rocket'],
+      timings: { wordChoiceMs: 100, intermissionMs: 100, drawDurationMs: 1_000 },
+    });
+    const alice = await addClient(url);
+    const bob = await addClient(url);
+    const aliceState = trackState(alice);
+    const code = await createRoom(alice);
+    await joinRoom(bob, 'Bob', code);
+    const choicesPromise = waitForEvent(alice, 'word:choices');
+    await emitAck(alice, 'game:start');
+    await choicesPromise;
+    await emitAck(alice, 'word:choose', { choice: 'bicycle' });
+    await waitUntil(() => aliceState.current?.room.game?.phase === 'drawing');
+
+    const nearPromise = waitForEvent(alice, 'chat:message', (message) => message.type === 'near');
+    expect(await emitAck(bob, 'chat:send', { message: 'bicicle' })).toEqual({ ok: true });
+    expect((await nearPromise)[0]).toMatchObject({ text: '"bicicle" is close.', playerId: bob.id });
+
+    const repeatedNearPromise = waitForEvent(alice, 'chat:message', (message) => message.type === 'near', 300);
+    expect(await emitAck(bob, 'chat:send', { message: 'Bicicle' })).toEqual({ ok: true });
+    await expect(repeatedNearPromise).rejects.toThrow('Timed out');
+
+    const chatPromise = waitForEvent(alice, 'chat:message', (message) => message.type === 'chat');
+    expect(await emitAck(bob, 'chat:send', { message: 'faraway' })).toEqual({ ok: true });
+    expect((await chatPromise)[0]).toMatchObject({ nickname: 'Bob', text: 'faraway' });
   });
 });

@@ -24,14 +24,14 @@ export function DrawingToolbar({ color, width, tool, onColor, onWidth, onTool, o
         {colors.map((swatch) => (
           <button
             key={swatch}
-            className={`color-swatch ${tool === 'brush' && color === swatch ? 'color-swatch--selected' : ''}`}
+            className={`color-swatch ${color === swatch ? 'color-swatch--selected' : ''}`}
             style={{ backgroundColor: swatch }}
             type="button"
             aria-label={`${swatch} color`}
-            aria-pressed={tool === 'brush' && color === swatch}
-            onClick={() => { playSound('tap'); onColor(swatch); onTool('brush'); }}
+            aria-pressed={color === swatch}
+            onClick={() => { playSound('tap'); onColor(swatch); if (tool !== 'fill') onTool('brush'); }}
           >
-            {tool === 'brush' && color === swatch && <span aria-hidden="true">✓</span>}
+            {color === swatch && <span aria-hidden="true">✓</span>}
           </button>
         ))}
       </div>
@@ -62,6 +62,15 @@ export function DrawingToolbar({ color, width, tool, onColor, onWidth, onTool, o
         onClick={() => { playSound('tap'); onTool(tool === 'eraser' ? 'brush' : 'eraser'); }}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 19-4-4 10-10a2.8 2.8 0 0 1 4 0l2 2a2.8 2.8 0 0 1 0 4l-8 8H7Zm0 0h13M9 9l6 6" /></svg>
+      </button>
+      <button
+        className={`tool-button fill-button ${tool === 'fill' ? 'tool-button--selected' : ''}`}
+        type="button"
+        aria-label="Fill area with color"
+        aria-pressed={tool === 'fill'}
+        onClick={() => { playSound('tap'); onTool(tool === 'fill' ? 'brush' : 'fill'); }}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3 6.5 6.5-4.6 4.6a2.83 2.83 0 0 1-4 0l-3-3a2.83 2.83 0 0 1 0-4L9 3Z" /><path d="M14 5.5 16.5 8M3.5 20.5h17" /></svg>
       </button>
       <button className="tool-button" type="button" aria-label="Undo last stroke" onClick={() => { playSound('undo'); onUndo(); }}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7 4 12l5 5M5 12h8a6 6 0 0 1 6 6" /></svg>

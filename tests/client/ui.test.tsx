@@ -113,24 +113,44 @@ describe('lobby controls', () => {
       configurable: true,
       value: { writeText },
     });
-    render(<Lobby socket={fakeSocket} room={lobbyRoom()} selfId="alice" onLeave={vi.fn()} onError={vi.fn()} />);
+    render(<Lobby socket={fakeSocket} room={lobbyRoom()} selfId="alice" messages={[]} onLeave={vi.fn()} onError={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: 'Copy Code' }));
     expect(writeText).toHaveBeenCalledWith('H7K3QF');
     expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument();
   });
 
   it('shows editable settings and start to the host', () => {
-    render(<Lobby socket={fakeSocket} room={lobbyRoom()} selfId="alice" onLeave={vi.fn()} onError={vi.fn()} />);
+    render(<Lobby socket={fakeSocket} room={lobbyRoom()} selfId="alice" messages={[]} onLeave={vi.fn()} onError={vi.fn()} />);
     expect(screen.getByLabelText('Rounds')).toBeInTheDocument();
     expect(screen.getByLabelText('Drawing time')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start Game' })).toBeEnabled();
   });
 
   it('shows read-only settings to a non-host', () => {
-    render(<Lobby socket={fakeSocket} room={lobbyRoom()} selfId="bob" onLeave={vi.fn()} onError={vi.fn()} />);
+    render(<Lobby socket={fakeSocket} room={lobbyRoom()} selfId="bob" messages={[]} onLeave={vi.fn()} onError={vi.fn()} />);
     expect(screen.queryByRole('button', { name: 'Start Game' })).not.toBeInTheDocument();
     expect(screen.queryAllByRole('combobox')).toHaveLength(0);
     expect(screen.getByText('Waiting for the host to start')).toBeInTheDocument();
+  });
+});
+
+describe('lobby room log', () => {
+  it('shows system activity such as players leaving', () => {
+    render(
+      <Lobby
+        socket={fakeSocket}
+        room={lobbyRoom()}
+        selfId="alice"
+        messages={[
+          { id: 'm1', type: 'system', playerId: null, nickname: null, text: 'Bob left the room. Not enough players to keep playing.', at: 1 },
+          { id: 'm2', type: 'near', playerId: 'bob', nickname: null, text: '"bicicle" is close.', at: 2 },
+        ]}
+        onLeave={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Bob left the room. Not enough players to keep playing.')).toBeInTheDocument();
+    expect(screen.getByText('"bicicle" is close.')).toBeInTheDocument();
   });
 });
 

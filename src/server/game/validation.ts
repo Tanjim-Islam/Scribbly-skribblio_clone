@@ -3,6 +3,7 @@ import {
   MAX_NICKNAME_LENGTH,
   ROOM_CODE_LENGTH,
   type BrushWidth,
+  type CanvasFill,
   type DrawStroke,
   type GameSettings,
   type NormalizedPoint,
@@ -89,6 +90,16 @@ export function validateStroke(value: unknown): value is DrawStroke {
 
 export function validatePointBatch(value: unknown): value is NormalizedPoint[] {
   return Array.isArray(value) && value.length >= 1 && value.length <= 64 && value.every(validatePoint);
+}
+
+export function validateFill(value: unknown): value is CanvasFill {
+  if (!value || typeof value !== 'object') return false;
+  const fill = value as Record<string, unknown>;
+  return (
+    validatePoint(fill.point) &&
+    typeof fill.color === 'string' &&
+    /^#[0-9A-Fa-f]{6}$/u.test(fill.color)
+  );
 }
 
 export function validateStrokeId(value: unknown): value is string {

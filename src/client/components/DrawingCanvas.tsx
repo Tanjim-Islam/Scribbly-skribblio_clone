@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react';
-import type { BrushWidth, DrawStroke, DrawingTool, NormalizedPoint } from '../../shared/types.js';
+import type { BrushWidth, CanvasFill, DrawStroke, DrawingTool, NormalizedPoint } from '../../shared/types.js';
 import type { ScribblySocket } from '../socket.js';
-import { drawStroke } from '../game/canvas-renderer.js';
+import { applyFill, drawStroke } from '../game/canvas-renderer.js';
+
+type LocalAction =
+  | { kind: 'stroke'; stroke: DrawStroke }
+  | { kind: 'fill'; point: NormalizedPoint; color: string };
 
 type DrawingCanvasProps = {
   socket: ScribblySocket;
@@ -15,8 +19,7 @@ type DrawingCanvasProps = {
 export function DrawingCanvas({ socket, enabled, tool, color, width, resetKey }: DrawingCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<number | null>(null);
-  const strokesRef = useRef(new Map<string, DrawStroke>());
-  const strokeOrderRef = useRef<string[]>([]);
+  const actionsRef = useRef<LocalAction[]>([]);
   const activeStrokeRef = useRef<string | null>(null);
   const pendingPointsRef = useRef<NormalizedPoint[]>([]);
 
@@ -42,10 +45,17 @@ export function DrawingCanvas({ socket, enabled, tool, color, width, resetKey }:
     }
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, cssWidth, cssHeight);
-    for (const strokeId of strokeOrderRef.current) {
-      const stroke = strokesRef.current.get(strokeId);
-      if (stroke) drawStroke(context, stroke, cssWidth, cssHeight);
+    const pendingFills: { kind: 'fill'; point: NormalizedPoint; color: string }[] = [];
+    for (const action of actionsRef.current) {
+      if (action.kind === 'stroke') {
+        for (const fill of pendingFills) applyFill(context, fill.point, fill.color);
+        pendingFills.length = 0;
+        drawStroke(context, action.stroke, cssWidth, cssHeight);
+      } else {
+        pendingFills.push(action);
+      }
     }
+    for (const fill of pendingFills) applyFill(context, fill.point, fill.color);
   }, [canvasSize]);
 
   const drawLatest = useCallback(
@@ -71,8 +81,7 @@ export function DrawingCanvas({ socket, enabled, tool, color, width, resetKey }:
   }, [redraw]);
 
   useEffect(() => {
-    strokesRef.current.clear();
-    strokeOrderRef.current = [];
+    actionsRef.current = [];
     activeStrokeRef.current = null;
     pendingPointsRef.current = [];
     redraw();
@@ -80,35 +89,44 @@ export function DrawingCanvas({ socket, enabled, tool, color, width, resetKey }:
 
   useEffect(() => {
     const onBegin = (stroke: DrawStroke) => {
-      strokesRef.current.set(stroke.strokeId, { ...stroke, points: [...stroke.points] });
-      strokeOrderRef.current.push(stroke.strokeId);
+      actionsRef.current.push({ kind: 'stroke', stroke: { ...stroke, points: [...stroke.points] } });
       drawLatest(stroke, 0);
     };
     const onPoints = ({ strokeId, points }: { strokeId: string; points: NormalizedPoint[] }) => {
-      const stroke = strokesRef.current.get(strokeId);
-      if (!stroke) return;
-      const previousLength = stroke.points.length;
-      stroke.points.push(...points);
-      drawLatest(stroke, previousLength);
+      const last = actionsRef.current[actionsRef.current.length - 1];
+      if (!last || last.kind !== 'stroke' || last.stroke.strokeId !== strokeId) return;
+      const previousLength = last.stroke.points.length;
+      last.stroke.points.push(...points);
+      drawLatest(last.stroke, previousLength);
+    };
+    const onFill = ({ point, color }: CanvasFill) => {
+      actionsRef.current.push({ kind: 'fill', point, color });
+      redraw();
     };
     const onUndo = ({ strokeId }: { strokeId: string | null }) => {
-      if (!strokeId) return;
-      strokesRef.current.delete(strokeId);
-      strokeOrderRef.current = strokeOrderRef.current.filter((id) => id !== strokeId);
+      if (strokeId) {
+        const index = actionsRef.current.findIndex(
+          (action) => action.kind === 'stroke' && action.stroke.strokeId === strokeId,
+        );
+        if (index >= 0) actionsRef.current.splice(index, 1);
+      } else {
+        actionsRef.current.pop();
+      }
       redraw();
     };
     const onClear = () => {
-      strokesRef.current.clear();
-      strokeOrderRef.current = [];
+      actionsRef.current = [];
       redraw();
     };
     socket.on('draw:begin', onBegin);
     socket.on('draw:points', onPoints);
+    socket.on('canvas:fill', onFill);
     socket.on('canvas:undo', onUndo);
     socket.on('canvas:clear', onClear);
     return () => {
       socket.off('draw:begin', onBegin);
       socket.off('draw:points', onPoints);
+      socket.off('canvas:fill', onFill);
       socket.off('canvas:undo', onUndo);
       socket.off('canvas:clear', onClear);
     };
@@ -134,13 +152,16 @@ export function DrawingCanvas({ socket, enabled, tool, color, width, resetKey }:
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!enabled || event.button !== 0) return;
     event.preventDefault();
+    if (tool === 'fill') {
+      socket.emit('canvas:fill', { point: pointFromEvent(event), color });
+      return;
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
     const strokeId = `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
     const point = pointFromEvent(event);
     const stroke: DrawStroke = { strokeId, tool, color, width, points: [point] };
     activeStrokeRef.current = strokeId;
-    strokesRef.current.set(strokeId, stroke);
-    strokeOrderRef.current.push(strokeId);
+    actionsRef.current.push({ kind: 'stroke', stroke });
     drawLatest(stroke, 0);
     socket.emit('draw:begin', stroke);
   };
@@ -156,12 +177,12 @@ export function DrawingCanvas({ socket, enabled, tool, color, width, resetKey }:
       x: Math.max(0, Math.min(1, (pointerEvent.clientX - rect.left) / rect.width)),
       y: Math.max(0, Math.min(1, (pointerEvent.clientY - rect.top) / rect.height)),
     }));
-    const stroke = strokesRef.current.get(strokeId);
-    if (!stroke) return;
-    const previousLength = stroke.points.length;
-    stroke.points.push(...points);
+    const last = actionsRef.current[actionsRef.current.length - 1];
+    if (!last || last.kind !== 'stroke' || last.stroke.strokeId !== strokeId) return;
+    const previousLength = last.stroke.points.length;
+    last.stroke.points.push(...points);
     pendingPointsRef.current.push(...points);
-    drawLatest(stroke, previousLength);
+    drawLatest(last.stroke, previousLength);
     if (frameRef.current === null) frameRef.current = requestAnimationFrame(flushPoints);
   };
 
@@ -173,7 +194,8 @@ export function DrawingCanvas({ socket, enabled, tool, color, width, resetKey }:
       cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
     }
-    const stroke = strokesRef.current.get(strokeId);
+    const last = actionsRef.current[actionsRef.current.length - 1];
+    const stroke = last?.kind === 'stroke' && last.stroke.strokeId === strokeId ? last.stroke : null;
     if (stroke) {
       const finalPoint = pointFromEvent(event);
       const lastPoint = stroke.points[stroke.points.length - 1];

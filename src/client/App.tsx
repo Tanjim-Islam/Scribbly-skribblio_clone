@@ -74,6 +74,14 @@ export default function App() {
           );
           if (newTurn) playSound(nextGame.currentDrawerId === next.selfId ? 'your-turn' : 'turn-start');
           if (previousGame?.phase === 'choosing' && nextGame?.phase === 'drawing') playSound('word-selected');
+          if (
+            previousGame?.phase === 'drawing' &&
+            nextGame?.phase === 'drawing' &&
+            previousGame.maskedWord &&
+            previousGame.maskedWord !== nextGame.maskedWord
+          ) {
+            playSound('hint');
+          }
         }
       }
 
@@ -94,7 +102,9 @@ export default function App() {
     };
     const onMessage = (message: ChatMessage) => {
       setMessages((current) => [...current.slice(-99), message]);
-      if (message.type === 'chat' && message.playerId === roomStateRef.current?.selfId) playSound('wrong-guess');
+      if ((message.type === 'chat' || message.type === 'near') && message.playerId === roomStateRef.current?.selfId) {
+        playSound('wrong-guess');
+      }
     };
     const onCorrectGuess = ({ playerId }: { playerId: string; nickname: string }) => {
       playSound(playerId === roomStateRef.current?.selfId ? 'correct-guess' : 'someone-guessed');
@@ -179,7 +189,14 @@ export default function App() {
     <>
       {roomState ? (
         roomState.room.status === 'lobby' ? (
-          <Lobby socket={socket} room={roomState.room} selfId={roomState.selfId} onLeave={leaveRoom} onError={showError} />
+          <Lobby
+            socket={socket}
+            room={roomState.room}
+            selfId={roomState.selfId}
+            messages={messages}
+            onLeave={leaveRoom}
+            onError={showError}
+          />
         ) : roomState.room.status === 'finished' ? (
           <FinalResults socket={socket} room={roomState.room} selfId={roomState.selfId} onError={showError} />
         ) : (

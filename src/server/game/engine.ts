@@ -4,6 +4,7 @@ import {
   MAX_PLAYERS,
   type ActionAck,
   type ActionResult,
+  type CanvasFill,
   type ChatMessage,
   type ClientToServerEvents,
   type DrawStroke,
@@ -15,11 +16,19 @@ import {
   type TurnEndReason,
   type TurnSummary,
 } from '../../shared/types.js';
-import { calculateGuessScore, createRoomCode, maskWord } from './logic.js';
+import {
+  calculateGuessScore,
+  chooseRevealPositions,
+  createRoomCode,
+  isNearGuess,
+  maskWord,
+  revealWordMask,
+} from './logic.js';
 import {
   normalizeGuess,
   normalizeRoomCode,
   validateChatMessage,
+  validateFill,
   validateNickname,
   validatePointBatch,
   validateSettings,
@@ -44,6 +53,10 @@ type StoredStroke = DrawStroke & {
   ended: boolean;
 };
 
+type StoredAction =
+  | { kind: 'stroke'; playerId: string; stroke: StoredStroke }
+  | { kind: 'fill'; playerId: string; point: CanvasFill['point']; color: string };
+
 type InternalGame = {
   phase: GamePhase;
   round: number;
@@ -55,12 +68,15 @@ type InternalGame = {
   maskedWord: string | null;
   deadline: number | null;
   drawDurationMs: number;
-  strokes: StoredStroke[];
+  actions: StoredAction[];
+  revealedPositions: Set<number>;
+  nearGuesses: Set<string>;
   awards: Map<string, number>;
   lastTurn: TurnSummary | null;
   choiceTimer: ReturnType<typeof setTimeout> | null;
   drawTimer: ReturnType<typeof setTimeout> | null;
   intermissionTimer: ReturnType<typeof setTimeout> | null;
+  hintTimers: ReturnType<typeof setTimeout>[];
 };
 
 type InternalRoom = {
@@ -230,8 +246,16 @@ export class GameEngine {
       const parsed = validateChatMessage(payload?.message);
       if (!parsed.ok) return this.fail(socket, ack, parsed.error);
 
-      if (room.game.secretWord && normalizeGuess(parsed.value) === normalizeGuess(room.game.secretWord)) {
+      const normalizedGuess = normalizeGuess(parsed.value);
+      if (room.game.secretWord && normalizedGuess === normalizeGuess(room.game.secretWord)) {
         this.handleCorrectGuess(room, player);
+      } else if (
+        room.game.secretWord &&
+        isNearGuess(normalizedGuess, normalizeGuess(room.game.secretWord)) &&
+        !room.game.nearGuesses.has(normalizedGuess)
+      ) {
+        room.game.nearGuesses.add(normalizedGuess);
+        this.io.to(room.code).emit('chat:message', this.makeChatMessage('near', `"${parsed.value}" is close.`, player));
       } else {
         this.io.to(room.code).emit('chat:message', this.makeChatMessage('chat', parsed.value, player));
       }
@@ -241,6 +265,7 @@ export class GameEngine {
     socket.on('draw:begin', (payload) => this.handleDrawBegin(socket, payload));
     socket.on('draw:points', (payload) => this.handleDrawPoints(socket, payload));
     socket.on('draw:end', (payload) => this.handleDrawEnd(socket, payload));
+    socket.on('canvas:fill', (payload) => this.handleFill(socket, payload));
     socket.on('canvas:undo', () => this.handleUndo(socket));
     socket.on('canvas:clear', () => this.handleClear(socket));
 
@@ -299,12 +324,15 @@ export class GameEngine {
       maskedWord: null,
       deadline: null,
       drawDurationMs: 0,
-      strokes: [],
+      actions: [],
+      revealedPositions: new Set(),
+      nearGuesses: new Set(),
       awards: new Map(),
       lastTurn: null,
       choiceTimer: null,
       drawTimer: null,
       intermissionTimer: null,
+      hintTimers: [],
     };
   }
 
@@ -324,7 +352,9 @@ export class GameEngine {
     game.secretWord = null;
     game.maskedWord = null;
     game.deadline = Date.now() + this.timings.wordChoiceMs;
-    game.strokes = [];
+    game.actions = [];
+    game.revealedPositions = new Set();
+    game.nearGuesses = new Set();
     game.awards = new Map();
     game.lastTurn = null;
     for (const player of room.players.values()) player.hasGuessed = false;
@@ -346,6 +376,7 @@ export class GameEngine {
     if (game.choiceTimer) clearTimeout(game.choiceTimer);
     game.choiceTimer = null;
     game.secretWord = word;
+    game.revealedPositions = new Set();
     game.maskedWord = maskWord(word);
     game.phase = 'drawing';
     game.drawDurationMs = this.timings.drawDurationMs ?? room.settings.drawTime * 1_000;
@@ -358,6 +389,28 @@ export class GameEngine {
         this.finishTurn(room, 'time-up');
       }
     }, game.drawDurationMs);
+    game.hintTimers = [
+      { atMs: Math.floor(game.drawDurationMs * 0.5), count: 1 },
+      { atMs: Math.floor(game.drawDurationMs * 0.75), count: 2 },
+    ].map(({ atMs, count }) =>
+      setTimeout(() => {
+        if (room.game === expectedGame && expectedGame.phase === 'drawing') {
+          this.revealHint(room, count);
+        }
+      }, atMs),
+    );
+  }
+
+  private revealHint(room: InternalRoom, count: number): void {
+    const game = room.game;
+    if (!game?.secretWord || game.phase !== 'drawing' || !game.maskedWord) return;
+    const positions = chooseRevealPositions(game.secretWord, game.revealedPositions, count);
+    if (positions.length === 0) return;
+    for (const position of positions) game.revealedPositions.add(position);
+    game.maskedWord = revealWordMask(game.secretWord, game.revealedPositions);
+    const letter = [...game.secretWord][positions[0]];
+    this.emitSystem(room, `Hint: the letter "${letter}" is in the word.`);
+    this.broadcastState(room);
   }
 
   private handleCorrectGuess(room: InternalRoom, player: RoomPlayer): void {
@@ -463,10 +516,17 @@ export class GameEngine {
     if (!room?.game) return this.drawError(socket, 'Only the current drawer can draw.');
     if (!validateStroke(payload)) return this.drawError(socket, 'Invalid drawing command.');
     const game = room.game;
-    if (game.strokes.length >= 300 || game.strokes.some((stroke) => stroke.strokeId === payload.strokeId)) {
+    if (
+      game.actions.length >= 300 ||
+      game.actions.some((action) => action.kind === 'stroke' && action.stroke.strokeId === payload.strokeId)
+    ) {
       return this.drawError(socket, 'Invalid drawing command.');
     }
-    game.strokes.push({ ...payload, points: [...payload.points], playerId: socket.id, ended: false });
+    game.actions.push({
+      kind: 'stroke',
+      playerId: socket.id,
+      stroke: { ...payload, points: [...payload.points], playerId: socket.id, ended: false },
+    });
     socket.to(room.code).emit('draw:begin', payload);
   }
 
@@ -479,9 +539,7 @@ export class GameEngine {
     if (!validateStrokeId(payload?.strokeId) || !validatePointBatch(payload?.points)) {
       return this.drawError(socket, 'Invalid drawing command.');
     }
-    const stroke = room.game.strokes.find(
-      (candidate) => candidate.strokeId === payload.strokeId && candidate.playerId === socket.id && !candidate.ended,
-    );
+    const stroke = this.findActiveStroke(room.game, socket.id, payload.strokeId);
     if (!stroke || stroke.points.length + payload.points.length > 5_000) {
       return this.drawError(socket, 'Invalid drawing command.');
     }
@@ -493,33 +551,58 @@ export class GameEngine {
     const room = this.authorizedDrawingRoom(socket.id);
     if (!room?.game) return this.drawError(socket, 'Only the current drawer can draw.');
     if (!validateStrokeId(payload?.strokeId)) return this.drawError(socket, 'Invalid drawing command.');
-    const stroke = room.game.strokes.find(
-      (candidate) => candidate.strokeId === payload.strokeId && candidate.playerId === socket.id && !candidate.ended,
-    );
+    const stroke = this.findActiveStroke(room.game, socket.id, payload.strokeId);
     if (!stroke) return this.drawError(socket, 'Invalid drawing command.');
     stroke.ended = true;
     socket.to(room.code).emit('draw:end', payload);
+  }
+
+  private findActiveStroke(game: InternalGame, playerId: string, strokeId: string): StoredStroke | null {
+    for (let index = game.actions.length - 1; index >= 0; index -= 1) {
+      const action = game.actions[index];
+      if (
+        action.kind === 'stroke' &&
+        action.stroke.strokeId === strokeId &&
+        action.stroke.playerId === playerId &&
+        !action.stroke.ended
+      ) {
+        return action.stroke;
+      }
+    }
+    return null;
+  }
+
+  private handleFill(socket: ScribblySocket, payload: CanvasFill): void {
+    const room = this.authorizedDrawingRoom(socket.id);
+    if (!room?.game) return this.drawError(socket, 'Only the current drawer can draw.');
+    if (!validateFill(payload)) return this.drawError(socket, 'Invalid drawing command.');
+    const game = room.game;
+    if (game.actions.length >= 300) return this.drawError(socket, 'Invalid drawing command.');
+    game.actions.push({ kind: 'fill', playerId: socket.id, point: payload.point, color: payload.color });
+    this.io.to(room.code).emit('canvas:fill', { point: payload.point, color: payload.color });
   }
 
   private handleUndo(socket: ScribblySocket): void {
     const room = this.authorizedDrawingRoom(socket.id);
     if (!room?.game) return this.drawError(socket, 'Only the current drawer can edit the canvas.');
     let index = -1;
-    for (let candidate = room.game.strokes.length - 1; candidate >= 0; candidate -= 1) {
-      if (room.game.strokes[candidate].playerId === socket.id) {
+    for (let candidate = room.game.actions.length - 1; candidate >= 0; candidate -= 1) {
+      if (room.game.actions[candidate].playerId === socket.id) {
         index = candidate;
         break;
       }
     }
     if (index < 0) return;
-    const [stroke] = room.game.strokes.splice(index, 1);
-    this.io.to(room.code).emit('canvas:undo', { strokeId: stroke.strokeId });
+    const [action] = room.game.actions.splice(index, 1);
+    this.io.to(room.code).emit('canvas:undo', {
+      strokeId: action.kind === 'stroke' ? action.stroke.strokeId : null,
+    });
   }
 
   private handleClear(socket: ScribblySocket): void {
     const room = this.authorizedDrawingRoom(socket.id);
     if (!room?.game) return this.drawError(socket, 'Only the current drawer can edit the canvas.');
-    room.game.strokes = [];
+    room.game.actions = [];
     this.io.to(room.code).emit('canvas:clear');
   }
 
@@ -555,7 +638,7 @@ export class GameEngine {
       room.hostId = [...room.players.values()].sort((a, b) => a.joinedOrder - b.joinedOrder)[0].id;
     }
     if (room.status === 'playing' && room.players.size < 2) {
-      this.resetToLobby(room, 'Game stopped because another player left.');
+      this.resetToLobby(room, `${leaving?.nickname ?? 'A player'} left the room. Not enough players to keep playing.`);
       return;
     }
     if (room.status === 'playing' && wasDrawer && room.game && ['choosing', 'drawing'].includes(room.game.phase)) {
@@ -608,9 +691,11 @@ export class GameEngine {
     if (game.choiceTimer) clearTimeout(game.choiceTimer);
     if (game.drawTimer) clearTimeout(game.drawTimer);
     if (game.intermissionTimer) clearTimeout(game.intermissionTimer);
+    for (const timer of game.hintTimers) clearTimeout(timer);
     game.choiceTimer = null;
     game.drawTimer = null;
     game.intermissionTimer = null;
+    game.hintTimers = [];
   }
 
   private publicPlayers(room: InternalRoom): PublicPlayer[] {

@@ -69,7 +69,7 @@ export type NormalizedPoint = {
   y: number;
 };
 
-export type DrawingTool = 'brush' | 'eraser';
+export type DrawingTool = 'brush' | 'eraser' | 'fill';
 export type BrushWidth = 0.004 | 0.008 | 0.016;
 
 export type DrawStroke = {
@@ -80,9 +80,14 @@ export type DrawStroke = {
   points: NormalizedPoint[];
 };
 
+export type CanvasFill = {
+  point: NormalizedPoint;
+  color: string;
+};
+
 export type ChatMessage = {
   id: string;
-  type: 'chat' | 'system' | 'guess';
+  type: 'chat' | 'system' | 'guess' | 'near';
   playerId: string | null;
   nickname: string | null;
   text: string;
@@ -106,6 +111,7 @@ export type ClientToServerEvents = {
   'draw:begin': (stroke: DrawStroke) => void;
   'draw:points': (payload: { strokeId: string; points: NormalizedPoint[] }) => void;
   'draw:end': (payload: { strokeId: string }) => void;
+  'canvas:fill': (payload: CanvasFill) => void;
   'canvas:undo': () => void;
   'canvas:clear': () => void;
   'game:returnToLobby': (ack: ActionAck) => void;
@@ -121,6 +127,7 @@ export type ServerToClientEvents = {
   'draw:begin': (stroke: DrawStroke) => void;
   'draw:points': (payload: { strokeId: string; points: NormalizedPoint[] }) => void;
   'draw:end': (payload: { strokeId: string }) => void;
+  'canvas:fill': (payload: CanvasFill) => void;
   'canvas:undo': (payload: { strokeId: string | null }) => void;
   'canvas:clear': () => void;
   'turn:ended': (summary: TurnSummary) => void;

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ActionResult, GameSettings, PublicRoomState } from '../../shared/types.js';
+import type { ActionResult, ChatMessage, GameSettings, PublicRoomState } from '../../shared/types.js';
 import { playSound } from '../audio/sound-engine.js';
 import type { ScribblySocket } from '../socket.js';
 import { PlayerList } from './PlayerList.js';
@@ -9,11 +9,12 @@ type LobbyProps = {
   socket: ScribblySocket;
   room: PublicRoomState;
   selfId: string;
+  messages: ChatMessage[];
   onLeave: () => void;
   onError: (message: string) => void;
 };
 
-export function Lobby({ socket, room, selfId, onLeave, onError }: LobbyProps) {
+export function Lobby({ socket, room, selfId, messages, onLeave, onError }: LobbyProps) {
   const [copied, setCopied] = useState(false);
   const [starting, setStarting] = useState(false);
   const isHost = room.hostId === selfId;
@@ -63,8 +64,25 @@ export function Lobby({ socket, room, selfId, onLeave, onError }: LobbyProps) {
       </header>
 
       <div className="lobby-content">
-        <div className="lobby-players-card">
-          <PlayerList players={room.players} selfId={selfId} gameActive={false} />
+        <div className="lobby-left">
+          <div className="lobby-players-card">
+            <PlayerList players={room.players} selfId={selfId} gameActive={false} />
+          </div>
+          <section className="lobby-log" aria-label="Room activity">
+            <div className="panel-heading"><h2>Room log</h2><span>Latest activity</span></div>
+            <div className="lobby-log-list" aria-live="polite">
+              {messages.length === 0 ? (
+                <p className="chat-empty">Joins and leaves appear here.</p>
+              ) : (
+                messages.map((item) => (
+                  <p className={`chat-line chat-line--${item.type}`} key={item.id}>
+                    {item.type === 'chat' && <strong>{item.nickname}: </strong>}
+                    {item.text}
+                  </p>
+                ))
+              )}
+            </div>
+          </section>
         </div>
         <section className="settings-panel" aria-labelledby="settings-heading">
           <p className="eyebrow">Game room</p>

@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { calculateGuessScore, createRoomCode, getTurnTransition, maskWord } from '../../src/server/game/logic.js';
+import {
+  calculateGuessScore,
+  chooseRevealPositions,
+  createRoomCode,
+  editDistance,
+  getTurnTransition,
+  isNearGuess,
+  maskWord,
+  revealWordMask,
+} from '../../src/server/game/logic.js';
 import { pickWordChoices, WORD_BANK } from '../../src/server/game/words.js';
 import {
   normalizeGuess,
@@ -110,5 +119,46 @@ describe('word selection', () => {
   });
   it('masks letters while preserving phrase spacing', () => {
     expect(maskWord('ice cream')).toBe('_ _ _   _ _ _ _ _');
+  });
+});
+
+describe('letter hints', () => {
+  it('reveals requested positions in the mask', () => {
+    expect(revealWordMask('bicycle', new Set([2, 4]))).toBe('_ _ c _ c _ _');
+    expect(revealWordMask('ice cream', new Set([1]))).toBe('_ c _   _ _ _ _ _');
+  });
+
+  it('keeps hyphens visible and never reveals spaces', () => {
+    expect(revealWordMask('ice-cream', new Set([0, 3, 6]))).toBe('i _ _ - _ _ e _ _');
+  });
+
+  it('reveals every occurrence of the most frequent letters first', () => {
+    expect(chooseRevealPositions('bicycle', new Set(), 1)).toEqual([2, 4]);
+    expect(chooseRevealPositions('bicycle', new Set([2, 4]), 2)).toEqual([0, 1]);
+    expect(chooseRevealPositions('bicycle', new Set([0, 1, 2, 3, 4, 5]), 2)).toEqual([6]);
+  });
+
+  it('ignores already revealed positions', () => {
+    expect(revealWordMask('bicycle', new Set([0, 1, 2, 4]))).toBe('b i c _ c _ _');
+  });
+});
+
+describe('near guesses', () => {
+  it('computes Levenshtein distances', () => {
+    expect(editDistance('bicycle', 'bicicle')).toBe(1);
+    expect(editDistance('bicycle', 'bicycle')).toBe(0);
+    expect(editDistance('cat', 'dog')).toBe(3);
+    expect(editDistance('cat', 'cats')).toBe(1);
+    expect(editDistance('cat', 'ca')).toBe(1);
+    expect(editDistance('', 'a')).toBe(1);
+  });
+
+  it('flags guesses that are one letter away', () => {
+    expect(isNearGuess('bicicle', 'bicycle')).toBe(true);
+    expect(isNearGuess('bicycl', 'bicycle')).toBe(true);
+    expect(isNearGuess('bicycles', 'bicycle')).toBe(true);
+    expect(isNearGuess('bicycle', 'bicycle')).toBe(false);
+    expect(isNearGuess('faraway', 'bicycle')).toBe(false);
+    expect(isNearGuess('cat', 'dog')).toBe(false);
   });
 });

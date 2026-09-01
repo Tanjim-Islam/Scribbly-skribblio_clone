@@ -16,6 +16,7 @@ const expectedCues: SoundCue[] = [
   'turn-ended',
   'game-ended',
   'low-time',
+  'hint',
   'undo',
   'clear',
   'leave',
